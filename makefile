@@ -1,4 +1,5 @@
 DB_URL=postgresql://root:secret@localhost:5432/short_url?sslmode=disable
+makeFileDir := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 network:
 	docker network create shorturl-network
@@ -17,5 +18,8 @@ migrateup:
 
 migratedown:
 	migrate -path db/migration -database "$(DB_URL)" -verbose down
+
+sqlc:
+	docker run --rm -v $(makeFileDir):/src -w /src kjconroy/sqlc generate
 	
-.PHONY: network postgres createdb dropdb migrateup migratedown
+.PHONY: network postgres createdb dropdb migrateup migratedown sqlc
