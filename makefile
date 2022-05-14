@@ -11,7 +11,7 @@ dropdb:
 	docker exec -it postgres dropdb short_url
 
 createdb:
-	docker exec -it postgres14 createdb --username=root --owner=root short-url
+	docker exec -it postgres createdb --username=root --owner=root short_url
 
 migrateup:
 	migrate -path db/migration -database "$(DB_URL)" -verbose up
@@ -21,5 +21,8 @@ migratedown:
 
 sqlc:
 	docker run --rm -v $(makeFileDir):/src -w /src kjconroy/sqlc generate
+
+test:
+	go test -v -cover -race ./...
 	
-.PHONY: network postgres createdb dropdb migrateup migratedown sqlc
+.PHONY: network postgres createdb dropdb migrateup migratedown sqlc test
