@@ -27,5 +27,8 @@ test:
 
 server:
 	go run main.go
+
+mock:
+	mockgen -source ./db/sqlc/querier.go -destination ./db/mock/querier.go -package mockdb
 	
-.PHONY: network postgres createdb dropdb migrateup migratedown sqlc test server
+.PHONY: network postgres createdb dropdb migrateup migratedown sqlc test server mock
