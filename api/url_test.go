@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,7 +27,7 @@ func TestMain(m *testing.M) {
 
 func TestServer_createShortURL(t *testing.T) {
 	url := db.Url{
-		OriginUrl: util.RandomLongURL(),
+		OriginUrl: "https://" + util.RandomLongURL(),
 	}
 
 	testCases := []struct {
@@ -51,9 +52,23 @@ func TestServer_createShortURL(t *testing.T) {
 			},
 		},
 		{
-			name: "Invalid request input",
+			name: "OriginUrl empty",
 			body: gin.H{
 				"originUrl": "",
+			},
+			buildStubs: func(store *mockdb.MockQuerier) {
+				store.EXPECT().
+					CreateURL(gomock.Any(), gomock.Any()).
+					Times(0)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusBadRequest, recorder.Code)
+			},
+		},
+		{
+			name: "OriginUrl not acceptable Url",
+			body: gin.H{
+				"originUrl": "www.google.com",
 			},
 			buildStubs: func(store *mockdb.MockQuerier) {
 				store.EXPECT().
@@ -105,5 +120,91 @@ func TestServer_createShortURL(t *testing.T) {
 			server.router.ServeHTTP(recorder, request)
 			tc.checkResponse(recorder)
 		})
+	}
+}
+
+func TestServer_getRedirect(t *testing.T) {
+	url := db.Url{
+		OriginUrl: util.RandomLongURL(),
+		ShortUrl:  util.RandomString(6),
+	}
+
+	testCases := []struct {
+		name          string
+		shortUrl      string
+		buildStubs    func(store *mockdb.MockQuerier)
+		checkResponse func(recorder *httptest.ResponseRecorder)
+	}{
+		{
+			name:     "Success case",
+			shortUrl: url.ShortUrl,
+			buildStubs: func(store *mockdb.MockQuerier) {
+				store.EXPECT().
+					GetURL(gomock.Any(), gomock.Eq(url.ShortUrl)).
+					Times(1).
+					Return(url, nil)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusMovedPermanently, recorder.Code)
+			},
+		},
+		{
+			name:     "shortURL too short",
+			shortUrl: "000",
+			buildStubs: func(store *mockdb.MockQuerier) {
+				store.EXPECT().
+					GetURL(gomock.Any(), gomock.Any()).
+					Times(0)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusBadRequest, recorder.Code)
+			},
+		},
+		{
+			name:     "Not found",
+			shortUrl: url.ShortUrl,
+			buildStubs: func(store *mockdb.MockQuerier) {
+				store.EXPECT().
+					GetURL(gomock.Any(), gomock.Eq(url.ShortUrl)).
+					Times(1).
+					Return(url, sql.ErrNoRows)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusNotFound, recorder.Code)
+			},
+		},
+		{
+			name:     "InternalError",
+			shortUrl: url.ShortUrl,
+			buildStubs: func(store *mockdb.MockQuerier) {
+				store.EXPECT().
+					GetURL(gomock.Any(), gomock.Any()).
+					Times(1).
+					Return(db.Url{}, sql.ErrConnDone)
+			},
+			checkResponse: func(recorder *httptest.ResponseRecorder) {
+				require.Equal(t, http.StatusInternalServerError, recorder.Code)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		// go mock
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueries := mockdb.NewMockQuerier(ctrl)
+		tc.buildStubs(mockQueries)
+
+		// start test server and send request
+		server := NewServer(mockQueries)
+		recorder := httptest.NewRecorder()
+
+		apiUrl := fmt.Sprintf("/%s", tc.shortUrl)
+		request, err := http.NewRequest(http.MethodGet, apiUrl, nil)
+		require.NoError(t, err)
+
+		server.router.ServeHTTP(recorder, request)
+		tc.checkResponse(recorder)
 	}
 }

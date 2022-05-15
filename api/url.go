@@ -11,7 +11,7 @@ import (
 )
 
 type createShortURLRequest struct {
-	OriginUrl string `json:"originUrl" binding:"required"`
+	OriginUrl string `json:"originUrl" binding:"required,url"`
 }
 
 // 建立短連結
