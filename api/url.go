@@ -28,7 +28,12 @@ func (server *Server) createShortURL(ctx *gin.Context) {
 	var shortUrl string
 	retry := 1
 
-	for retry < 5 {
+	for {
+		if retry > 5 {
+			ctx.JSON(http.StatusInternalServerError, errorResponse(fmt.Errorf("產生短網址失敗超過次數")))
+			return
+		}
+
 		shortUrl = util.RandomString(6)
 
 		// 設置布隆過濾器
@@ -41,6 +46,8 @@ func (server *Server) createShortURL(ctx *gin.Context) {
 		if exist {
 			break
 		}
+
+		retry++
 	}
 
 	arg := db.CreateURLParams{

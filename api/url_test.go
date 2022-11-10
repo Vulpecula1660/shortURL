@@ -33,7 +33,7 @@ func TestServer_createShortURL(t *testing.T) {
 	testCases := []struct {
 		name          string
 		body          gin.H
-		buildStubs    func(store *mockdb.MockQuerier)
+		buildStubs    func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier)
 		checkResponse func(recorder *httptest.ResponseRecorder)
 	}{
 		{
@@ -41,11 +41,16 @@ func TestServer_createShortURL(t *testing.T) {
 			body: gin.H{
 				"originUrl": url.OriginUrl,
 			},
-			buildStubs: func(store *mockdb.MockQuerier) {
+			buildStubs: func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier) {
 				store.EXPECT().
 					CreateURL(gomock.Any(), gomock.Any()).
 					Times(1).
 					Return(url, nil)
+
+				redis.EXPECT().
+					SetBloom(gomock.Any(), gomock.Any()).
+					Times(1).
+					Return(true, nil)
 			},
 			checkResponse: func(recorder *httptest.ResponseRecorder) {
 				require.Equal(t, http.StatusOK, recorder.Code)
@@ -56,9 +61,13 @@ func TestServer_createShortURL(t *testing.T) {
 			body: gin.H{
 				"originUrl": "",
 			},
-			buildStubs: func(store *mockdb.MockQuerier) {
+			buildStubs: func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier) {
 				store.EXPECT().
 					CreateURL(gomock.Any(), gomock.Any()).
+					Times(0)
+
+				redis.EXPECT().
+					SetBloom(gomock.Any(), gomock.Any()).
 					Times(0)
 			},
 			checkResponse: func(recorder *httptest.ResponseRecorder) {
@@ -70,9 +79,13 @@ func TestServer_createShortURL(t *testing.T) {
 			body: gin.H{
 				"originUrl": "www.google.com",
 			},
-			buildStubs: func(store *mockdb.MockQuerier) {
+			buildStubs: func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier) {
 				store.EXPECT().
 					CreateURL(gomock.Any(), gomock.Any()).
+					Times(0)
+
+				redis.EXPECT().
+					SetBloom(gomock.Any(), gomock.Any()).
 					Times(0)
 			},
 			checkResponse: func(recorder *httptest.ResponseRecorder) {
@@ -84,11 +97,16 @@ func TestServer_createShortURL(t *testing.T) {
 			body: gin.H{
 				"originUrl": url.OriginUrl,
 			},
-			buildStubs: func(store *mockdb.MockQuerier) {
+			buildStubs: func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier) {
 				store.EXPECT().
 					CreateURL(gomock.Any(), gomock.Any()).
 					Times(1).
 					Return(db.Url{}, sql.ErrConnDone)
+
+				redis.EXPECT().
+					SetBloom(gomock.Any(), gomock.Any()).
+					Times(1).
+					Return(true, nil)
 			},
 			checkResponse: func(recorder *httptest.ResponseRecorder) {
 				require.Equal(t, http.StatusInternalServerError, recorder.Code)
@@ -103,7 +121,8 @@ func TestServer_createShortURL(t *testing.T) {
 			defer ctrl.Finish()
 
 			mockQueries := mockdb.NewMockQuerier(ctrl)
-			tc.buildStubs(mockQueries)
+			mockRedis := mockdb.NewMockRedisQuerier(ctrl)
+			tc.buildStubs(mockQueries, mockRedis)
 
 			// start test server and send request
 			server := NewServer(mockQueries, nil)
@@ -132,17 +151,22 @@ func TestServer_getRedirect(t *testing.T) {
 	testCases := []struct {
 		name          string
 		shortUrl      string
-		buildStubs    func(store *mockdb.MockQuerier)
+		buildStubs    func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier)
 		checkResponse func(recorder *httptest.ResponseRecorder)
 	}{
 		{
 			name:     "Success case",
 			shortUrl: url.ShortUrl,
-			buildStubs: func(store *mockdb.MockQuerier) {
+			buildStubs: func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier) {
 				store.EXPECT().
 					GetURL(gomock.Any(), gomock.Eq(url.ShortUrl)).
 					Times(1).
 					Return(url, nil)
+
+				redis.EXPECT().
+					ExistBloom(gomock.Any(), gomock.Eq(url.ShortUrl)).
+					Times(1).
+					Return(true, nil)
 			},
 			checkResponse: func(recorder *httptest.ResponseRecorder) {
 				require.Equal(t, http.StatusMovedPermanently, recorder.Code)
@@ -151,9 +175,13 @@ func TestServer_getRedirect(t *testing.T) {
 		{
 			name:     "shortURL too short",
 			shortUrl: "000",
-			buildStubs: func(store *mockdb.MockQuerier) {
+			buildStubs: func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier) {
 				store.EXPECT().
 					GetURL(gomock.Any(), gomock.Any()).
+					Times(0)
+
+				redis.EXPECT().
+					ExistBloom(gomock.Any(), gomock.Any()).
 					Times(0)
 			},
 			checkResponse: func(recorder *httptest.ResponseRecorder) {
@@ -163,11 +191,15 @@ func TestServer_getRedirect(t *testing.T) {
 		{
 			name:     "Not found",
 			shortUrl: url.ShortUrl,
-			buildStubs: func(store *mockdb.MockQuerier) {
+			buildStubs: func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier) {
 				store.EXPECT().
-					GetURL(gomock.Any(), gomock.Eq(url.ShortUrl)).
+					GetURL(gomock.Any(), gomock.Any()).
+					Times(0)
+
+				redis.EXPECT().
+					ExistBloom(gomock.Any(), gomock.Eq(url.ShortUrl)).
 					Times(1).
-					Return(url, sql.ErrNoRows)
+					Return(false, nil)
 			},
 			checkResponse: func(recorder *httptest.ResponseRecorder) {
 				require.Equal(t, http.StatusNotFound, recorder.Code)
@@ -176,11 +208,15 @@ func TestServer_getRedirect(t *testing.T) {
 		{
 			name:     "InternalError",
 			shortUrl: url.ShortUrl,
-			buildStubs: func(store *mockdb.MockQuerier) {
+			buildStubs: func(store *mockdb.MockQuerier, redis *mockdb.MockRedisQuerier) {
 				store.EXPECT().
 					GetURL(gomock.Any(), gomock.Any()).
 					Times(1).
 					Return(db.Url{}, sql.ErrConnDone)
+
+				redis.EXPECT().
+					ExistBloom(gomock.Any(), gomock.Any()).
+					Times(0)
 			},
 			checkResponse: func(recorder *httptest.ResponseRecorder) {
 				require.Equal(t, http.StatusInternalServerError, recorder.Code)
@@ -194,7 +230,8 @@ func TestServer_getRedirect(t *testing.T) {
 		defer ctrl.Finish()
 
 		mockQueries := mockdb.NewMockQuerier(ctrl)
-		tc.buildStubs(mockQueries)
+		mockRedis := mockdb.NewMockRedisQuerier(ctrl)
+		tc.buildStubs(mockQueries, mockRedis)
 
 		// start test server and send request
 		server := NewServer(mockQueries, nil)
