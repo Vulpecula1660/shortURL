@@ -9,12 +9,12 @@ import (
 
 type Server struct {
 	store  db.Querier
-	redis  *redis.RedisQueries
+	redis  redis.RedisQuerier
 	router *gin.Engine
 }
 
 // NewServer creates a new HTTP server and set up routing.
-func NewServer(store db.Querier, redis *redis.RedisQueries) *Server {
+func NewServer(store db.Querier, redis redis.RedisQuerier) *Server {
 	server := &Server{
 		store: store,
 		redis: redis,
