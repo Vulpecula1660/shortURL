@@ -1,6 +1,7 @@
 package api
 
 import (
+	"shortURL/db/redis"
 	db "shortURL/db/sqlc"
 
 	"github.com/gin-gonic/gin"
@@ -8,13 +9,15 @@ import (
 
 type Server struct {
 	store  db.Querier
+	redis  *redis.RedisQueries
 	router *gin.Engine
 }
 
 // NewServer creates a new HTTP server and set up routing.
-func NewServer(store db.Querier) *Server {
+func NewServer(store db.Querier, redis *redis.RedisQueries) *Server {
 	server := &Server{
 		store: store,
+		redis: redis,
 	}
 
 	server.setupRouter()

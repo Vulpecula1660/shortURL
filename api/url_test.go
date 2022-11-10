@@ -106,7 +106,7 @@ func TestServer_createShortURL(t *testing.T) {
 			tc.buildStubs(mockQueries)
 
 			// start test server and send request
-			server := NewServer(mockQueries)
+			server := NewServer(mockQueries, nil)
 			recorder := httptest.NewRecorder()
 
 			// Marshal body data to JSON
@@ -197,7 +197,7 @@ func TestServer_getRedirect(t *testing.T) {
 		tc.buildStubs(mockQueries)
 
 		// start test server and send request
-		server := NewServer(mockQueries)
+		server := NewServer(mockQueries, nil)
 		recorder := httptest.NewRecorder()
 
 		apiUrl := fmt.Sprintf("/%s", tc.shortUrl)

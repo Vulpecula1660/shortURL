@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 
 	db "shortURL/db/sqlc"
@@ -23,9 +24,28 @@ func (server *Server) createShortURL(ctx *gin.Context) {
 		return
 	}
 
+	// 產生短網址
+	var shortUrl string
+	retry := 1
+
+	for retry < 5 {
+		shortUrl = util.RandomString(6)
+
+		// 設置布隆過濾器
+		exist, err := server.redis.SetBloom(ctx, shortUrl)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+			return
+		}
+
+		if exist {
+			break
+		}
+	}
+
 	arg := db.CreateURLParams{
 		OriginUrl: req.OriginUrl,
-		ShortUrl:  util.RandomString(6),
+		ShortUrl:  shortUrl,
 	}
 
 	account, err := server.store.CreateURL(ctx, arg)
@@ -50,6 +70,30 @@ func (server *Server) getRedirect(ctx *gin.Context) {
 		return
 	}
 
+	// 檢查布隆過濾器
+	exist, err := server.redis.ExistBloom(ctx, req.ShortUrl)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	if !exist {
+		ctx.JSON(http.StatusNotFound, errorResponse(fmt.Errorf("布隆過濾器內無資料")))
+		return
+	}
+
+	// redis 取資料
+	redisUrl, haveData, err := server.redis.GetData(ctx, req.ShortUrl)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, errorResponse(err))
+		return
+	}
+
+	if haveData {
+		ctx.Redirect(http.StatusMovedPermanently, redisUrl.OriginUrl)
+		return
+	}
+
 	url, err := server.store.GetURL(ctx, req.ShortUrl)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -57,6 +101,13 @@ func (server *Server) getRedirect(ctx *gin.Context) {
 			return
 		}
 
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	// 放入 redis
+	err = server.redis.SetData(ctx, req.ShortUrl, url)
+	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
 		return
 	}
